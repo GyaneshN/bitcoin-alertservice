@@ -5,6 +5,8 @@ import { getBulkVideos, getSingleVideo, uploadToS3 } from "./uploads3";
 import { createClient } from "redis";
 import fs from "fs";
 import { exec } from "child_process";
+import { ECSClient, RunTaskCommand } from "@aws-sdk/client-ecs";
+import dotenv from "dotenv";
 
 const app = express();
 
@@ -18,10 +20,20 @@ app.use(express.json());
 
 publisher.connect();
 
-// (async () => {
-//   const url = await getVideoUrl("1717917394427-343266241", "output-decoded");
-//   console.log(url);
-// })();
+dotenv.config();
+
+const ecsclient = new ECSClient({
+  region: process.env.REGION ?? "",
+  credentials: {
+    accessKeyId: process.env.S3_ACCESS_KEY ?? "",
+    secretAccessKey: process.env.S3_SECRET_KEY ?? "",
+  },
+});
+
+const config = {
+  CLUSTER: "arn:aws:ecs:ap-south-1:675754445188:cluster/builder-cluster",
+  TASK: "arn:aws:ecs:ap-south-1:675754445188:task-definition/transcoder-task",
+};
 
 app.post("/upload", uploadVideo.single("video"), async (req, res) => {
   const key = req.file?.filename.split(".")[0];
@@ -38,26 +50,44 @@ app.post("/upload", uploadVideo.single("video"), async (req, res) => {
       process.env.BUCKET_NAME || ""
     );
 
-    const cmd = `docker run -e KEY="${key}" -e VIDEO_LINK="${url}" newimg39`;
+    const cmd = new RunTaskCommand({
+      cluster: config.CLUSTER,
+      taskDefinition: config.TASK,
+      launchType: "FARGATE",
+      count: 1,
+      networkConfiguration: {
+        awsvpcConfiguration: {
+          assignPublicIp : "ENABLED",
+          subnets: [
+            "subnet-081bcb807434034eb",
+            "subnet-03b50c3631ec557ac",
+            "subnet-04d255673d7003d5b",
+          ],
+          securityGroups:["sg-0d9f7ef5a1379aec7"]
+        },
+      },
+      overrides:{
+        containerOverrides:[
+          {
+            name : "transcoder-image",
+            environment : [
+              {name : "KEY" , value : key},
+              {name : "VIDEO_LINK", value : url}
+            ]
+          }
+        ]
+      }
+    });
 
     await publisher.set(`${key}_redis`, "false");
 
-    exec(cmd, (error, stdout, stderr) => {
-      if (error) {
-        console.error(`Error executing command: ${error.message}`);
-        return;
-      }
-      if (stderr) {
-        console.error(`Command execution resulted in errors: ${stderr}`);
-        return;
-      }
-    });
+    await ecsclient.send(cmd);
 
     let intervalId = setInterval(async () => {
       const redis_key = await publisher.get(`${key}_redis`);
       if (redis_key == "true") {
         const links = await getBulkVideos(
-          String(key),
+          String(key), 
           process.env.OUTPUT_BUCKET || ""
         );
         console.log(links);
