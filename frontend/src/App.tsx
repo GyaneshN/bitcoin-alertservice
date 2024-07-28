@@ -1,8 +1,10 @@
 import { CardDemo } from "./components/Card";
 import Processed from "./components/Processed";
 import { ModeToggle } from "./components/mode-toogle";
+// import { MainContext } from "./context/State";
 
 const App = () => {
+
   return (
     <div>
       <div className="flex justify-end p-5">

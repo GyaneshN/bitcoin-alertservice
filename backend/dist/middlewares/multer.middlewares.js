@@ -26,6 +26,6 @@ const fileFilter = (req, file, cb) => {
 };
 const uploadVideo = (0, multer_1.default)({
     storage,
-    limits: { fileSize: 1024 * 1024 * 50 },
+    limits: { fileSize: 1024 * 1024 * 1024 },
 });
 exports.uploadVideo = uploadVideo;
